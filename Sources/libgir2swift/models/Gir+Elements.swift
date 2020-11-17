@@ -1,9 +1,8 @@
 //
-//  gir.swift
-//  gir2swift
+//  File.swift
+//  
 //
-//  Created by Rene Hexel on 25/03/2016.
-//  Copyright © 2016, 2017, 2018, 2019, 2020 Rene Hexel. All rights reserved.
+//  Created by Mikoláš Stuchlík on 17.11.2020.
 //
 #if os(Linux)
     import Glibc
@@ -12,279 +11,7 @@
 #endif
 import SwiftLibXML
 
-public extension String {
-    /// Remove the name space and return the base name of the receiver
-    /// representing a fully qualified Swift type
-    var withoutNameSpace: String {
-        guard let dot = self.enumerated().filter({ $0.1 == "." }).last else {
-            return self
-        }
-        return String(self[index(startIndex, offsetBy: dot.offset+1)..<endIndex])
-    }
-}
-
-/// Enumerate a subtree of an XML document designated by an XPath expression
-/// - Parameters:
-///   - xml: the XML document to enumerate
-///   - path: XPath representation of the subtry to enumerate
-///   - namespaces: namespaces to consider
-///   - quiet: suppress warnings if `true`
-///   - construct: callback to construct a given type `T` represented by an XML element
-///   - prefix: default Namespace prefix to register
-///   - check: callback to check whether the current element should be included
-func enumerate<T>(_ xml: XMLDocument, path: String, inNS namespaces: AnySequence<XMLNameSpace>, quiet: Bool, construct: (XMLElement, Int) -> T?, defaultPrefix prefix: String = "gir", check: (T) -> Bool = { _ in true }) -> [T] where T: GIR.Thing {
-    if let entries = xml.xpath(path, namespaces: namespaces, defaultPrefix: prefix) {
-        let things = entries.lazy.enumerated().map { construct($0.1, $0.0) }.filter {
-            guard let node = $0 else { return false }
-            guard check(node) else {
-                if !quiet {
-                    fputs("Warning: duplicate type '\(node.name)' for \(path) ignored!\n", stderr)
-                }
-                return false
-            }
-
-            return true
-        }
-        .map { $0! }
-
-        return things
-    }
-    return []
-}
-
-/// Designated containers for types that can have associated methods
-private let methodContainers: Set<String> = [ "record", "class", "interface", "enumeration", "bitfield" ]
-
-/// Check whether a given XML element represents a free function
-/// (as opposed to a method inside a type)
-/// - Parameter function: XML element to be checked
-func isFreeFunction(_ function: XMLElement) -> Bool {
-    let isContained = methodContainers.contains(function.parent.name)
-    return !isContained
-}
-
-/// Comparator to check whether two `Thing`s are equal
-/// - Parameters:
-///   - lhs: `Thing` to compare
-///   - rhs: `Thing` to compare with
-public func ==(lhs: GIR.Thing, rhs: GIR.Thing) -> Bool {
-    return lhs.name == rhs.name
-}
-
-/// Comparator to check the ordering of two `Thing`s
-/// - Parameters:
-///   - lhs: first `Thing` to compare
-///   - rhs: second `Thing` to compare
-public func <(lhs: GIR.Thing, rhs: GIR.Thing) -> Bool {
-    return lhs.name < rhs.name
-}
-
-/// Representation of a GIR file
-public final class GIR {
-    /// The parsed XML document represented by the receiver
-    public let xml: XMLDocument
-    /// Preample boilerplate to output before any generated code
-    public var preamble = ""
-    /// Namespace prefix defined by the receiver
-    public var prefix = "" { didSet { GIR.dottedPrefix = prefix + "." } }
-    /// Namespace prefix defined by the receiver with a trailing "."
-    public static var dottedPrefix = ""
-    /// Collection of identifier prefixes
-    public var identifierPrefixes = Array<String>()
-    /// Collection of symbol prefixes
-    public var symbolPrefixes = Array<String>()
-    /// Type-erased sequence of namespaces
-    public var namespaces: AnySequence<XMLNameSpace> = emptySequence()
-    /// Aliases defined by this GIR file
-    public var aliases: [Alias] = []
-    /// Constants defined by this GIR file
-    public var constants: [Constant] = []
-    /// Enums defined by this GIR file
-    public var enumerations: [Enumeration] = []
-    /// Bitfields defined by this GIR file
-    public var bitfields: [Bitfield] = []
-    /// Interfaces defined by this GIR file
-    public var interfaces: [Interface] = []
-    /// Records defined by this GIR file
-    public var records: [Record] = []
-    /// Unions defined by this GIR file
-    public var unions: [Union] = []
-    /// Classes defined by this GIR file
-    public var classes: [Class] = []
-    /// Free functions defined by this GIR file
-    public var functions: [Function] = []
-    /// Callbacs defined by this GIR file
-    public var callbacks: [Callback] = []
-
-    /// names of black-listed identifiers
-    public static var blacklist: Set<String> = []
-
-    /// names of constants to be taken verbatim
-    public static var verbatimConstants: Set<String> = []
-
-    /// names of override initialisers
-    public static var overrides: Set<String> = []
-    
-    /// context of known types
-    public static var knownDataTypes:   [ String : Datatype ] = [:]
-    /// context of known records
-    public static var knownRecords: [ String : Record ] = [:]
-    /// context of known records
-    public static var knownBitfields: [ String : Bitfield ] = [:]
-    /// context of known functions
-    public static var KnownFunctions: [ String : Function ] = [:]
-    /// suffixes for `@escaping` callback heuristics
-    public static var callbackSuffixes = [String]()
-    /// types to turn into force-unwrapped optionals
-    public static var forceUnwrapped: Set<String> = ["gpointer", "gconstpointer"]
-
-    /// Dotted namespace replacements
-    public static var namespaceReplacements: [ Substring : Substring ] = [
-        "GObject." : "GLibObject.", "Gio." : "GIO.", "GdkPixbuf." : "", "cairo." : "Cairo."
-    ]
-
-    /// designated constructor
-    public init(xmlDocument: XMLDocument, quiet: Bool = false) {
-        xml = xmlDocument
-        if let rp = xml.first(where: { $0.name == "repository" }) {
-            namespaces = rp.namespaces
-//            for n in namespaces {
-//                print("Got \(n.prefix) at \(n.href)")
-//            }
-        }
-        //
-        // set up name space prefix
-        //
-        if let ns = xml.xpath("//gir:namespace", namespaces: namespaces, defaultPrefix: "gir")?.makeIterator().next() {
-            if let name = ns.attribute(named: "name") {
-                prefix = name
-                GIR.dottedPrefix = name + "."
-            }
-            identifierPrefixes = ns.sortedSubAttributesFor(attr: "identifier-prefixes")
-            symbolPrefixes     = ns.sortedSubAttributesFor(attr: "symbol-prefixes")
-        }
-        withUnsafeMutablePointer(to: &GIR.knownDataTypes) { (knownTypes: UnsafeMutablePointer<[ String : Datatype ]>) -> Void in
-          withUnsafeMutablePointer(to: &GIR.knownRecords) { (knownRecords: UnsafeMutablePointer<[ String : Record]>) -> Void in
-            withUnsafeMutablePointer(to: &GIR.knownBitfields) { (knownBitfields: UnsafeMutablePointer<[ String : Bitfield]>) -> Void in
-            let prefixed: (String) -> String = { $0.prefixed(with: self.prefix) }
-            
-            func setKnown<T>(_ d: UnsafeMutablePointer<[ String : T]>) -> (String, T) -> Bool {
-                return { (name: String, type: T) -> Bool in
-                    guard d.pointee[name] == nil || d.pointee[prefixed(name)] == nil else { return false }
-                    let prefixedName = prefixed(name)
-                    d.pointee[name] = type
-                    d.pointee[prefixedName] = type
-                    if GIR.namespaceReplacements[prefixedName.dottedPrefix] != nil {
-                        let alternativelyPrefixed = prefixedName.withNormalisedPrefix
-                        d.pointee[alternativelyPrefixed] = type
-                    }
-                    return true
-                }
-            }
-            let setKnownType   = setKnown(knownTypes)
-            let setKnownRecord = setKnown(knownRecords)
-            let setKnownBitfield = setKnown(knownBitfields)
-            //
-            // get all type alias records
-            //
-            if let entries = xml.xpath("/*/*/gir:alias", namespaces: namespaces, defaultPrefix: "gir") {
-                aliases = entries.enumerated().map { Alias(node: $0.1, at: $0.0) }.filter {
-                    let name = $0.name
-                    guard setKnownType(name, $0) else {
-                        if !quiet { fputs("Warning: duplicate type '\(name)' for alias ignored!\n", stderr) }
-                        return false
-                    }
-                    return true
-                }
-            }
-            // closure for recording known types
-            func notKnownType<T>(_ e: T) -> Bool where T: Datatype {
-                return setKnownType(e.name, e)
-            }
-            let notKnownRecord: (Record) -> Bool     = {
-                guard notKnownType($0) else { return false }
-                return setKnownRecord($0.name, $0)
-            }
-            let notKnownBitfield: (Bitfield) -> Bool     = {
-                guard notKnownType($0) else { return false }
-                return setKnownBitfield($0.name, $0)
-            }
-            let notKnownFunction: (Function) -> Bool = {
-                let name = $0.name
-                guard GIR.KnownFunctions[name] == nil else { return false }
-                GIR.KnownFunctions[name] = $0
-                return true
-            }
-
-            //
-            // get all constants, enumerations, records, classes, and functions
-            //
-            constants    = enumerate(xml, path: "/*/*/gir:constant",    inNS: namespaces, quiet: quiet, construct: { Constant(node: $0, at: $1) },    check: notKnownType)
-            enumerations = enumerate(xml, path: "/*/*/gir:enumeration", inNS: namespaces, quiet: quiet, construct: { Enumeration(node: $0, at: $1) }, check: notKnownType)
-            bitfields    = enumerate(xml, path: "/*/*/gir:bitfield",    inNS: namespaces, quiet: quiet, construct: { Bitfield(node: $0, at: $1) },    check: notKnownBitfield)
-            interfaces   = enumerate(xml, path: "/*/*/gir:interface",   inNS: namespaces, quiet: quiet, construct: { Interface(node: $0, at: $1) }, check: notKnownRecord)
-            records      = enumerate(xml, path: "/*/*/gir:record",      inNS: namespaces, quiet: quiet, construct: { Record(node: $0, at: $1) },    check: notKnownRecord)
-            classes      = enumerate(xml, path: "/*/*/gir:class",       inNS: namespaces, quiet: quiet, construct: { Class(node: $0, at: $1) },     check: notKnownRecord)
-            unions       = enumerate(xml, path: "/*/*/gir:union",       inNS: namespaces, quiet: quiet, construct: { Union(node: $0, at: $1) },     check: notKnownRecord)
-            callbacks    = enumerate(xml, path: "/*/*/gir:callback",    inNS: namespaces, quiet: quiet, construct: { Callback(node: $0, at: $1) },    check: notKnownType)
-            functions    = enumerate(xml, path: "//gir:function",       inNS: namespaces, quiet: quiet, construct: {
-                isFreeFunction($0) ? Function(node: $0, at: $1) : nil
-                }, check: notKnownFunction)
-          }
-        }
-      }
-      buildClassHierarchy()
-      buildConformanceGraph()
-    }
-
-    /// convenience constructor to read a gir file
-    public convenience init?(fromFile name: String) {
-        guard let xml = XMLDocument(fromFile: name) else { return nil }
-        self.init(xmlDocument: xml)
-    }
-
-    /// convenience constructor to read from memory
-    public convenience init?(buffer content: UnsafeBufferPointer<CChar>, quiet q: Bool = false) {
-        guard let xml = XMLDocument(buffer: content) else { return nil }
-        self.init(xmlDocument: xml, quiet: q)
-    }
-
-    /// Traverse all the classes and record their relationship in the type hierarchy
-    @inlinable
-    public func buildClassHierarchy() {
-        for cl in classes {
-            recordImplementedInterfaces(for: cl)
-            guard cl.typeRef.type.parent == nil else { continue }
-            if let parent = cl.parentType {
-                cl.typeRef.type.parent = parent.typeRef
-            }
-        }
-    }
-
-    /// Traverse all the records and record all the interfaces implemented
-    @inlinable
-    public func buildConformanceGraph() {
-        records.forEach { recordImplementedInterfaces(for: $0) }
-    }
-
-    /// Traverse all the records and record all the interfaces implemented
-    @discardableResult @inlinable
-    public func recordImplementedInterfaces(for record: Record) -> Set<TypeReference> {
-        let t = record.typeRef.type
-        if let interfaces = GIR.implements[t] { return interfaces }
-        let implements = record.implements.compactMap { GIR.knownDataTypes[$0] }
-        var implementations = Set(implements.map(\.typeRef))
-        let implementedRecords = implements.compactMap { $0 as? Record }
-        implementations.formUnion(implementedRecords.flatMap { recordImplementedInterfaces(for: $0) })
-        if let parent = record.parentType {
-            implementations.formUnion(recordImplementedInterfaces(for: parent))
-        }
-        GIR.implements[t] = implementations
-        if let ref = GIR.recordRefs[t] { GIR.implements[ref.type] = implementations }
-        if let pro = GIR.protocols[t]  { GIR.implements[pro.type] = implementations }
-        return implementations
-    }
-
+extension GIR {
     /// GIR named thing class
     public class Thing: Hashable, Comparable {
         /// String representation of the kind of `Thing` represented by the receiver
@@ -311,6 +38,46 @@ public final class GIR {
         /// - Parameter hasher: The hasher to use when combining the components of the receiver.
         public func hash(into hasher: inout Hasher) {
             hasher.combine(name)
+        }
+        
+        
+        /// Comparator to check whether two `Thing`s are equal
+        /// - Parameters:
+        ///   - lhs: `Thing` to compare
+        ///   - rhs: `Thing` to compare with
+        public static  func ==(lhs: GIR.Thing, rhs: GIR.Thing) -> Bool {
+            return lhs.name == rhs.name
+        }
+
+        /// Comparator to check the ordering of two `Thing`s
+        /// - Parameters:
+        ///   - lhs: first `Thing` to compare
+        ///   - rhs: second `Thing` to compare
+        public static func <(lhs: GIR.Thing, rhs: GIR.Thing) -> Bool {
+            return lhs.name < rhs.name
+        }
+        
+        /// type name without 'Private' suffix (nil if public)
+        var priv: String? {
+            return name.stringByRemoving(suffix: "Private")
+        }
+        /// Type name without 'Class', 'Iface', etc. suffix
+        var node: String {
+            let nodeName: String
+            let privateSuffix: String
+            if let p = priv {
+                nodeName = p
+                privateSuffix = "Private"
+            } else {
+                nodeName = name
+                privateSuffix = ""
+            }
+            for s in ["Class", "Iface"] {
+                if let n = nodeName.stringByRemoving(suffix: s) {
+                    return n + privateSuffix
+                }
+            }
+            return name
         }
         
         /// Memberwise initialiser
@@ -1200,218 +967,3 @@ public final class GIR {
         }
     }
 }
-
-public extension StringProtocol {
-    /// Heuristic to check whether the receiver may be an escaping callback type
-    var maybeCallback: Bool {
-        for suffix in GIR.callbackSuffixes {
-            guard !hasSuffix(suffix) else { return true }
-        }
-        return false
-    }
-
-    /// Heuristic that returns an optional when the receiver may be a callback
-    var optionalWhenCallback: String {
-        guard !hasSuffix("?") && !hasSuffix("!") && maybeCallback else { return String(self) }
-        return self + "?"
-    }
-
-    /// Heuristic that returns an optional when the receiver may be a callback
-    var optionalWhenPointer: String {
-        guard !hasSuffix("?") && !hasSuffix("!") && (hasSuffix("pointer") || maybeCallback) else { return String(self) }
-        return self + "?"
-    }
-
-    /// Return `true` if the receiver represents a type name that should be a force-unwrapped optional
-    var doForceOptional: Bool {
-        return GIR.forceUnwrapped.contains(String(self)) || maybeCallback
-    }
-}
-
-/// some utility methods for things
-public extension GIR.Thing {
-    /// type name without 'Private' suffix (nil if public)
-    var priv: String? {
-        return name.stringByRemoving(suffix: "Private")
-    }
-    /// Type name without 'Class', 'Iface', etc. suffix
-    var node: String {
-        let nodeName: String
-        let privateSuffix: String
-        if let p = priv {
-            nodeName = p
-            privateSuffix = "Private"
-        } else {
-            nodeName = name
-            privateSuffix = ""
-        }
-        for s in ["Class", "Iface"] {
-            if let n = nodeName.stringByRemoving(suffix: s) {
-                return n + privateSuffix
-            }
-        }
-        return name
-    }
-}
-
-/// helper context class for tree traversal
-class ConversionContext {
-    /// Tree/indentation level
-    let level: Int
-    /// Parent context
-    let parent: ConversionContext?
-    /// Parent node in the XML tree
-    let parentNode: XMLTree.Node!
-    /// Dictionary of conversion functions for named nodes
-    let conversion: [String : (XMLTree.Node) -> String]
-    /// Array of strings representing code to be output
-    var outputs: [String] = []
-    
-    /// Designated initialiser
-    /// - Parameters:
-    ///   - conversion: Dictionary of conversion functions/closures
-    ///   - level: Level within the tree
-    ///   - parent: Parent context (or `nil` if no parent)
-    ///   - parentNode: Parent XML node (or `nil` if no parent)
-    init(_ conversion: [String : (XMLTree.Node) -> String] = [:], level: Int = 0, parent: ConversionContext? = nil, parentNode: XMLTree.Node? = nil) {
-        self.level = level
-        self.parent = parent
-        self.parentNode = parentNode
-        self.conversion = conversion
-    }
-
-    /// push a context
-    func push(node: XMLTree.Node, _ fs: [String : (XMLTree.Node) -> String]) -> ConversionContext {
-        return ConversionContext(fs, level: node.level+1, parent: self, parentNode: node)
-    }
-}
-
-/// Return a string of (leading) spaces preceding (and followed by) the given string
-/// - Parameters:
-///   - level: indentation level
-///   - s: String to be indented
-private func indent(level: Int, _ s: String = "") -> String {
-    return String(repeating: " ", count: level * 4) + s
-}
-
-extension GIR {
-    ///
-    /// return the documentation for the given child nodes
-    ///
-    public class func docs(children: LazySequence<AnySequence<XMLElement>>) -> String {
-        return documentation(name: "doc", children: children)
-    }
-
-    ///
-    /// return the documentation for the given child nodes
-    ///
-    public class func deprecatedDocumentation(children: LazySequence<AnySequence<XMLElement>>) -> String? {
-        let doc = documentation(name: "doc-deprecated", children: children)
-        guard !doc.isEmpty else { return nil }
-        return doc
-    }
-
-    ///
-    /// return the documentation for the given child nodes
-    ///
-    public class func documentation(name: String, children: LazySequence<AnySequence<XMLElement>>) -> String {
-        let docs = children.filter { $0.name == name }
-        let comments = docs.map { $0.content}
-        return comments.joined(separator: "\n")
-    }
-
-    ///
-    /// return the method/function arguments for the given child nodes
-    ///
-    public class func args(children: LazySequence<AnySequence<XMLElement>>) -> [Argument] {
-        let parameters = children.filter { $0.name.hasSuffix("parameter") }
-        let args = parameters.enumerated().map { Argument(node: $1, at: $0) }
-        return args
-    }
-
-    ///
-    /// return the type information of an argument or return type node
-    ///
-    class func typeOf(node: XMLElement) -> TypeReference {
-        let t = node.type
-        if !t.isVoid { return t }
-        for child in node.children {
-            let t = child.type
-            if !t.isVoid { return t }
-        }
-        return .void
-    }
-
-    ///
-    /// dump Swift code
-    ///
-    public func dumpSwift() -> String {
-        var context = ConversionContext([:])
-        context = ConversionContext(["repository": {
-            let s = indent(level: $0.level, "// \($0.node.name) @ \($0.level)+\(context.level)")
-            context = context.push(node: $0, ["namespace": {
-                let s = indent(level: $0.level, "// \($0.node.name) @ \($0.level)+\(context.level)")
-                context = context.push(node: $0, ["alias": {
-                    context = context.push(node: $0, ["type": {
-                        if let type  = $0.node.attribute(named: "name"),
-                           let alias = context.parentNode.node.attribute(named: "name"),
-                              !alias.isEmpty && !type.isEmpty {
-                            context.outputs = ["public typealias \(alias) = \(type)"]
-                        } else {
-                            context.outputs = ["// error alias \(String(describing: $0.node.attribute(named: "name"))) = \(String(describing: context.parentNode.node.attribute(named: "name")))"]
-                        }
-                        return ""
-                        }])
-                    return s
-                }, "function": {
-                    let s: String
-                    if let name = $0.node.attribute(named: "name"), !name.isEmpty {
-                        s = "func \(name)("
-                    } else { s = "// empty function " }
-                    context = context.push(node: $0, ["type": {
-                        if let type  = $0.node.attribute(named: "name"),
-                            let alias = context.parentNode.node.attribute(named: "name"),
-                               !alias.isEmpty && !type.isEmpty {
-                            context.outputs = ["public typealias \(alias) = \(type)"]
-                        } else {
-                            context.outputs = ["// error alias \(String(describing: $0.node.attribute(named: "name"))) = \(String(describing: context.parentNode.node.attribute(named: "name")))"]
-                        }
-                        return ""
-                        }])
-                    return s
-                }])
-                return s
-            }])
-            return s
-        }])
-        return (xml.tree.map { (tn: XMLTree.Node) -> String in
-            if let f = context.conversion[tn.node.name] { return f(tn) }
-            while context.level > tn.level {
-                if let parent = context.parent { context = parent }
-                else { assert(context.level == 0) }
-            }
-            return indent(level: tn.level, "// unhandled: \(tn.node.name) @ \(tn.level)+\(context.level)")
-            }).reduce("") { (output: String, element: String) -> String in
-                output + "\(element)\n"
-        }
-    }
-}
-
-extension XMLElement {
-    ///
-    /// return an attribute as a list of sub-attributeds split by a given character
-    /// and ordered with the longest attribute name first
-    ///
-    public func sortedSubAttributesFor(attr: String, splitBy char: Character = ",", orderedBy: (String, String) -> Bool = { $0.count > $1.count || ($0.count == $1.count && $0 < $1)}) -> [String] {
-        guard let attrs = (attribute(named: attr)?.split(separator: char))?.map({ String($0) }) else { return [] }
-        return attrs.sorted(by: orderedBy)
-    }
-
-    ///
-    /// return the documentation for a given node
-    ///
-    public func docs() -> String {
-        return GIR.docs(children: children.lazy)
-    }
-}
-
