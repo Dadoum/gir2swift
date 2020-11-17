@@ -146,7 +146,7 @@ public final class GIR {
     /// designated constructor
     public init(xmlDocument: XMLDocument, quiet: Bool = false) {
         xml = xmlDocument
-        if let rp = xml.findFirstWhere({ $0.name == "repository" }) {
+        if let rp = xml.first(where: { $0.name == "repository" }) {
             namespaces = rp.namespaces
 //            for n in namespaces {
 //                print("Got \(n.prefix) at \(n.href)")
@@ -918,14 +918,14 @@ public final class GIR {
         /// return all properties, including the ones derived from ancestors
         public var allProperties: [Property] {
             guard let parent = parentType else { return properties }
-            let all = properties.asSet.union(parent.allProperties.asSet)
+            let all = Set(properties).union(Set(parent.allProperties))
             return all.sorted()
         }
 
         /// return all signals, including the ones derived from ancestors
         public var allSignals: [Signal] {
             guard let parent = parentType else { return signals }
-            let all = signals.asSet.union(parent.allSignals.asSet)
+            let all = Set(signals).union(Set(parent.allSignals))
             return all.sorted()
         }
     }
@@ -1017,13 +1017,13 @@ public final class GIR {
             let thrAttr = node.attribute(named: "throws") ?? "0"
             throwsError = (Int(thrAttr) ?? 0) != 0
             let children = node.children.lazy
-            if let ret = children.findFirstWhere({ $0.name == "return-value"}) {
+            if let ret = children.first(where: { $0.name == "return-value"}) {
                 let arg = Argument(node: ret, at: -1)
                 returns = arg
             } else {
                 returns = Argument(name: "", type: .void, instance: false, comment: "")
             }
-            if let params = children.findFirstWhere({ $0.name == "parameters"}) {
+            if let params = children.first(where: { $0.name == "parameters"}) {
                 let children = params.children.lazy
                 args = GIR.args(children: children)
             } else {
@@ -1142,7 +1142,7 @@ public final class GIR {
         /// XML constructor
         public init(node: XMLElement, at index: Int, defaultDirection: ParameterDirection = .in) {
             instance = node.name.hasPrefix("instance")
-            _varargs = node.children.lazy.findFirstWhere({ $0.name == "varargs"}) != nil
+            _varargs = node.children.lazy.first(where: { $0.name == "varargs"}) != nil
             let allowNone = node.attribute(named: "allow-none")
             if let allowNone = allowNone, !allowNone.isEmpty && allowNone != "0" && allowNone != "false" {
                 self.allowNone = true
