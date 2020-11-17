@@ -572,8 +572,8 @@ public func methodCode(_ indentation: String, initialIndentation: String? = nil,
             if instance { hadInstance = true }
             return !instance
         }
-        let templateTypes = arguments.compactMap(\.templateDecl).asSet.sorted().joined(separator: ", ")
-        let nonNullableTemplates = arguments.compactMap(\.nonNullableTemplateDecl).asSet.sorted().joined(separator: ", ")
+        let templateTypes = Set(arguments.compactMap(\.templateDecl)).sorted().joined(separator: ", ")
+        let nonNullableTemplates = Set(arguments.compactMap(\.nonNullableTemplateDecl)).sorted().joined(separator: ", ")
         let defaultArgsCode: String
         if templateTypes.isEmpty || nonNullableTemplates == templateTypes {
             // no need to create default arguments method
@@ -841,7 +841,7 @@ public func convenienceConstructorCode(_ typeRef: TypeReference, indentation: St
                 // FIXME: as of Swift 5.3 beta, generating static class methods with va_list crashes the compiler
                 return "\n\(indentation)// *** \(name)() is currently not available because \(method.cname) takes a va_list pointer!\n\n"
             }
-            let templateTypes = arguments.compactMap(\.templateDecl).asSet.sorted().joined(separator: ", ")
+            let templateTypes = Set(arguments.compactMap(\.templateDecl)).sorted().joined(separator: ", ")
             let templateDecl = templateTypes.isEmpty ? "" : ("<" + templateTypes + ">")
             let p: String? = consPrefix == firstArgName?.swift ? nil : consPrefix
             let fact = factory ? "static func \(fname.swift + templateDecl)(" : ("\(isOverride ? ovr : conv)init" + templateDecl + "(")
