@@ -16,8 +16,24 @@ func signalSanityCheck(_ signal: GIR.Signal) -> String? {
         return "// Warning: signal \(signal.name) is ignored because of Alias argument or return is not yet supported"
     }
     
-    if !signal.args.allSatisfy({ $0.ownershipTransfer == .none }) || signal.ownershipTransfer != .none {
+    if !signal.args.allSatisfy({ $0.ownershipTransfer == .none }) || signal.returns.ownershipTransfer != .none {
         return "// Warning: signal \(signal.name) is ignored because of argument or return with owner transfership is not allowed"
+    }
+
+    if !signal.args.allSatisfy({ !$0.isOptional }) || signal.returns.isOptional {
+        return "// Warning: signal \(signal.name) is ignored because of argument or return optional is not allowed"
+    }
+
+    if !signal.args.allSatisfy({ $0.typeRef.type.name != "utf8" }) || signal.returns.typeRef.type.name == "utf8" {
+        return "// Warning: signal \(signal.name) is ignored because of argument or return String is not allowed"
+    }
+    
+    if !signal.args.allSatisfy({ $0.isNullable == false }) || signal.returns.isNullable == true {
+        return "// Warning: signal \(signal.name) is ignored because of argument or return nullability is not allowed"
+    }
+
+    if signal.returns.knownType is GIR.Record {
+        return "// Warning: signal \(signal.name) is ignored because of Record return is not yet supported"
     }
 
     return nil
@@ -176,8 +192,8 @@ private extension GIR.Argument {
     
     func swiftIdiomaticType() -> String {
         switch knownType {
-        case let type as GIR.Record: // Also Class, Union, Interface
-            return type.structName
+        case is GIR.Record: // Also Class, Union, Interface
+            return typeRef.type.swiftName + "Ref"
         case let type as GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield: // use UInt32
@@ -206,8 +222,8 @@ private extension GIR.Argument {
     
     func swiftSignalArgumentConversion(at index: Int) -> String {
         switch knownType {
-        case let type as GIR.Record: // Also Class, Union, Interface
-            return type.structRef.fullSwiftTypeName + "(raw: $\(index))"
+        case is GIR.Record: // Also Class, Union, Interface
+            return typeRef.type.swiftName + "Ref" + "(raw: $\(index))"
         case let type as GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield: // use UInt32
