@@ -7,9 +7,20 @@
 
 import Foundation
 
-// TODO: Expand sanity check and add reporting to the code, including ownership and inout
-func signalSanityCheck(_ signal: GIR.Signal) -> Bool {
-    signal.args.allSatisfy { $0.typeRef.type.name != "Void" }
+func signalSanityCheck(_ signal: GIR.Signal) -> String? {
+    if !signal.args.allSatisfy({ $0.typeRef.type.name != "Void" }) {
+        return "// Warning: signal \(signal.name) is ignored because of Void argument is not yet supported"
+    }
+    
+    if !signal.args.allSatisfy({ !($0.knownType is GIR.Alias) }) || (signal.returns.knownType is GIR.Alias) {
+        return "// Warning: signal \(signal.name) is ignored because of Alias argument or return is not yet supported"
+    }
+    
+    if !signal.args.allSatisfy({ $0.ownershipTransfer == .none }) || signal.ownershipTransfer != .none {
+        return "// Warning: signal \(signal.name) is ignored because of argument or return with owner transfership is not allowed"
+    }
+
+    return nil
 }
 
 func buildSignalExtension(for record: GIR.Record) -> String {
@@ -25,15 +36,15 @@ func buildSignalExtension(for record: GIR.Record) -> String {
     return Code.block(indentation: nil) {
         
         Code.block {
-            Code.loop(over: record.signals.filter({ !signalSanityCheck($0) })) { signal in
-                "// Warning: signal \(signal.name) is ignored because of Void argument is not yet supported"
+            Code.loop(over: record.signals.compactMap({ signalSanityCheck($0) })) { error in
+                "\(error)"
             }
         }
 
         "// MARK: Signals of \(record.kind) named \(record.name.swift)"
         "public extension \(record.name.swift) {"
         Code.block {
-            Code.loop(over: record.signals.filter(signalSanityCheck(_:))) { signal in
+            Code.loop(over: record.signals.filter { signalSanityCheck($0) == nil }) { signal in
                 commentCode(signal)
                 "/// - Note: This function represents signal `\(signal.name)`"
                 "/// - Parameter flags: Flags"
