@@ -12,6 +12,7 @@ func signalCheck(_ signal: GIR.Signal) -> Bool {
 }
 
 func buildSignalExtension(for record: GIR.Record) -> String {
+    return ""
     // Check preconditions
     if record.kind == "Interface" {
         return "// MARK: Signals of \(record.kind) named \(record.name.swift) are dropped"
