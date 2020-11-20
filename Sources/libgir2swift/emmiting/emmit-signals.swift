@@ -204,7 +204,7 @@ private func generateReturnStatement(record: GIR.Record, signal: GIR.Signal) -> 
         return Code.block {
             "let length = output.utf8CString.count"
             "let buffer = UnsafeMutablePointer<gchar>.allocate(capacity: length)"
-            "buffer.initialize(from: str, count: length)"
+            "buffer.initialize(from: output, count: length)"
             "return buffer"
         }
         return "return UnsafeMutablePointer<UInt8>(mutating: output)"
