@@ -7,85 +7,74 @@
 
 import Foundation
 
-func signalSanityCheck(_ signal: GIR.Signal) -> String? {
+func signalSanityCheck(_ signal: GIR.Signal) -> [String] {
 
-    var errors: String?
+    var errors = [String]()
     
     if !signal.args.allSatisfy({ $0.ownershipTransfer == .none }) {
-        errors = (errors ?? "") + " (1) argument with owner transfership is not allowed;"
+        errors.append("(1) argument with owner transfership is not allowed")
     }
     
     if !signal.args.allSatisfy({ $0.direction == .in }) {
-        errors = (errors ?? "") + " (2)  argument out or inout direction is not allowed;"
+        errors.append("(2)  argument out or inout direction is not allowed")
     }
 
     if !signal.args.allSatisfy({ $0.typeRef.type.name != "Void" }) {
-        errors = (errors ?? "") + " (3)  Void argument is not yet supported;"
+        errors.append("(3)  Void argument is not yet supported")
     }
     
     if !signal.args.allSatisfy({ $0.typeRef.type.name != "gpointer" }) {
-        errors = (errors ?? "") + " (3.1)  gpointer argument is not yet supported;"
+        errors.append("(4)  gpointer argument is not yet supported")
     }
     
     if !signal.args.allSatisfy({ !($0.knownType is GIR.Alias) }) || (signal.returns.knownType is GIR.Alias) {
-        errors = (errors ?? "") + " (4)  Alias argument or return is not yet supported;"
+        errors.append("(5)  Alias argument or return is not yet supported")
     }
 
     if signal.returns.isOptional {
-        errors = (errors ?? "") + " (5)  argument or return optional is not allowed;"
+        errors.append("(6)  argument or return optional is not allowed")
     }
 
     if !signal.args.allSatisfy({ !$0.isArray }) || signal.returns.isArray {
-        errors = (errors ?? "") + " (6)  argument or return array is not allowed;"
+        errors.append("(7)  argument or return array is not allowed")
     }
 
     if signal.returns.isNullable == true {
-        errors = (errors ?? "") + " (7)  argument or return nullability is not allowed;"
+        errors.append("(8)  argument or return nullability is not allowed")
     }
 
     if signal.returns.knownType is GIR.Record {
-        errors = (errors ?? "") + " (8)  Record return is not yet supported;"
+        errors.append("(9)  Record return is not yet supported")
     }
 
-    return errors.flatMap { "// Warning: signal \(signal.name) is ignored because of" + $0 }
+    return errors
 }
 
 func buildSignalExtension(for record: GIR.Record) -> String {
 
     if record.signals.isEmpty {
-        return "// MARK: no \(record.name.swift) signals"
+        return "// MARK: \(record.name.swift) has no signals"
     }
     
     return Code.block(indentation: nil) {
         
         "// MARK: Signals of \(record.name.swift)"
 
-        Code.block {
-            Code.loop(over: record.signals.compactMap({ signalSanityCheck($0) })) { error in
-                "\(error)"
-            }
-        }
-
         "public extension \(record.protocolName) {"
         Code.block {
-            Code.loop(over: record.signals.filter { signalSanityCheck($0) == nil }) { signal in
-
-                commentCode(signal)
-                "/// - Note: This function represents signal `\(signal.name)`"
-                "/// - Parameter flags: Flags"
-
-                let returnComment = gtkDoc2SwiftDoc(signal.returns.comment, linePrefix: "").replacingOccurrences(of: "\n", with: " ")
-                if !returnComment.isEmpty {
-                    "/// - Parameter handler: \(returnComment)"
-                }
-
-                "/// - Parameter unownedSelf: Reference to instance of self"
-                Code.loop(over: signal.args) { argument in
-                    let comment = gtkDoc2SwiftDoc(argument.comment, linePrefix: "").replacingOccurrences(of: "\n", with: " ")
-                    "/// - Parameter \(argument.prefixedArgumentName): \(comment.isEmpty ? "none" : comment)"
-                }
+            Code.loop(over: record.signals.filter( {!signalSanityCheck($0).isEmpty} )) { signal in
+                addDocumentation(signal: signal)
+                "/// - Warning: Wrapper of this signal could not be generated because it contains unimplemented features: { \( signalSanityCheck(signal).joined(separator: ", ") ) }"
+                "/// - Note: Use this string for `signalConnectData` method"
+                #"public static var on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
+            }
+            
+            Code.loop(over: record.signals.filter( {signalSanityCheck($0).isEmpty } )) { signal in
+                addDocumentation(signal: signal)
+                
+                "@discardableResult"
                 Code.line {
-                    "public func _on\(signal.name.camelSignal.capitalised)("
+                    "public func on\(signal.name.camelSignal.capitalised)("
                     "flags: ConnectFlags = ConnectFlags(0), "
                     "handler: "
                     handlerType(record: record, signal: signal)
@@ -162,6 +151,23 @@ private func signalClosureHolderDecl(record: GIR.Record, signal: GIR.Signal) -> 
         + (signal.args.isEmpty ? "" : ", ")
         + signal.returns.swiftIdiomaticType()
         + ">"
+}
+
+@CodeBuilder
+private func addDocumentation(signal: GIR.Signal) -> String {
+    commentCode(signal)
+    "/// - Note: Representation of signal named `\(signal.name)`"
+    "/// - Parameter flags: Flags"
+    let returnComment = gtkDoc2SwiftDoc(signal.returns.comment, linePrefix: "").replacingOccurrences(of: "\n", with: " ")
+    if !returnComment.isEmpty {
+        "/// - Parameter handler: \(returnComment)"
+    }
+
+    "/// - Parameter unownedSelf: Reference to instance of self"
+    Code.loop(over: signal.args) { argument in
+        let comment = gtkDoc2SwiftDoc(argument.comment, linePrefix: "").replacingOccurrences(of: "\n", with: " ")
+        "/// - Parameter \(argument.prefixedArgumentName): \(comment.isEmpty ? "none" : comment)"
+    }
 }
 
 @CodeBuilder
