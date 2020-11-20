@@ -58,7 +58,7 @@ func buildSignalExtension(for record: GIR.Record) -> String {
     
     return Code.block(indentation: nil) {
         
-        "// MARK: Signals of \(record.kind) named \(record.name.swift)"
+        "// MARK: Signals of \(record.name.swift)"
 
         Code.block {
             Code.loop(over: record.signals.compactMap({ signalSanityCheck($0) })) { error in
@@ -66,10 +66,10 @@ func buildSignalExtension(for record: GIR.Record) -> String {
             }
         }
 
-        "public extension \(record.name.swift) {"
+        "public extension \(record.protocolName) {"
         Code.block {
             Code.loop(over: record.signals.filter { signalSanityCheck($0) == nil }) { signal in
-                
+
                 commentCode(signal)
                 "/// - Note: This function represents signal `\(signal.name)`"
                 "/// - Parameter flags: Flags"
@@ -200,7 +200,7 @@ private func generateReturnStatement(record: GIR.Record, signal: GIR.Signal) -> 
     switch signal.returns.knownType {
     case is GIR.Record:
         return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
-    case let type as GIR.Alias: // use containedTypes
+    case is GIR.Alias: // use containedTypes
         return ""
     case is GIR.Bitfield:
         return "return output.rawValue"
@@ -213,7 +213,6 @@ private func generateReturnStatement(record: GIR.Record, signal: GIR.Signal) -> 
             "buffer.initialize(from: output, count: length)"
             "return buffer"
         }
-        return "return UnsafeMutablePointer<UInt8>(mutating: output)"
     default: // Treat as fundamental (if not a fundamental, report error)
         return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
     }
@@ -225,7 +224,7 @@ private extension GIR.Argument {
         switch knownType {
         case is GIR.Record:
             return typeRef.type.swiftName + "Ref" + (isNullable ? "?" : "")
-        case let type as GIR.Alias: // use containedTypes
+        case is GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield:
             return self.argumentTypeName + (isNullable ? "?" : "")
@@ -240,7 +239,7 @@ private extension GIR.Argument {
         switch knownType {
         case is GIR.Record:
             return GIR.gpointerType.typeName + (isNullable ? "?" : "")
-        case let type as GIR.Alias: // use containedTypes
+        case is GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield:
             return GIR.uint32Type.typeName + (isNullable ? "?" : "")
@@ -258,7 +257,7 @@ private extension GIR.Argument {
                 return "arg\(index).flatMap(\(typeRef.type.swiftName)Ref.init(raw:))"
             }
             return typeRef.type.swiftName + "Ref" + "(raw: arg\(index))"
-        case let type as GIR.Alias: // use containedTypes
+        case is GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield:
             if isNullable {
