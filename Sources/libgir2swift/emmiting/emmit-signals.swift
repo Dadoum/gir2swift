@@ -40,24 +40,21 @@ func signalSanityCheck(_ signal: GIR.Signal) -> String? {
 }
 
 func buildSignalExtension(for record: GIR.Record) -> String {
-    // TODO: Add support for generation inside of interface
-    if record.kind == "Interface" {
-        return "// MARK: Signals of \(record.kind) named \(record.name.swift) are dropped"
-    }
-    
+
     if record.signals.isEmpty {
         return "// MARK: no \(record.name.swift) signals"
     }
     
     return Code.block(indentation: nil) {
         
+        "// MARK: Signals of \(record.kind) named \(record.name.swift)"
+
         Code.block {
             Code.loop(over: record.signals.compactMap({ signalSanityCheck($0) })) { error in
                 "\(error)"
             }
         }
 
-        "// MARK: Signals of \(record.kind) named \(record.name.swift)"
         "public extension \(record.name.swift) {"
         Code.block {
             Code.loop(over: record.signals.filter { signalSanityCheck($0) == nil }) { signal in
@@ -93,11 +90,17 @@ func buildSignalExtension(for record: GIR.Record) -> String {
                     Code.block {
                         "let holder = Unmanaged<SwiftHandler>.fromOpaque($\(signal.args.count + 1)).takeUnretainedValue()"
                         "let output = holder.\(generaceCCallbackCall(record: record, signal: signal))"
-                        "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
+                        generateReturnStatement(record: record, signal: signal)
                     }
                     "}"
                     "let __gCallback__ = unsafeBitCast(cCallback, to: GCallback.self)"
-                    "let rv = signalConnectData("
+                    Code.line {
+                        "let rv = "
+                        if record is GIR.Interface {
+                            "GLibObject.ObjectRef(raw: ptr)."
+                        }
+                        "signalConnectData("
+                    }
                     Code.block {
                         #"detailedSignal: "\#(signal.name)", "#
                         "cHandler: __gCallback__, "
@@ -188,17 +191,32 @@ private func generaceCCallbackCall(record: GIR.Record, signal: GIR.Signal) -> St
     }
 }
 
+private func generateReturnStatement(record: GIR.Record, signal: GIR.Signal) -> String {
+    switch signal.returns.knownType {
+    case is GIR.Record:
+        return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
+    case let type as GIR.Alias: // use containedTypes
+        return ""
+    case is GIR.Bitfield:
+        return "return output.rawValue"
+    case is GIR.Enumeration:
+        return "return output.rawValue"
+    default: // Treat as fundamental (if not a fundamental, report error)
+        return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
+    }
+}
+
 private extension GIR.Argument {
     
     func swiftIdiomaticType() -> String {
         switch knownType {
-        case is GIR.Record: // Also Class, Union, Interface
+        case is GIR.Record:
             return typeRef.type.swiftName + "Ref"
         case let type as GIR.Alias: // use containedTypes
             return ""
-        case is GIR.Bitfield: // use UInt32
+        case is GIR.Bitfield:
             return self.argumentTypeName
-        case is GIR.Enumeration: // Binary integer (use Int)
+        case is GIR.Enumeration:
             return self.argumentTypeName
         default: // Treat as fundamental (if not a fundamental, report error)
             return self.argumentTypeName
@@ -207,14 +225,14 @@ private extension GIR.Argument {
     
     func swiftCCompatibleType() -> String {
         switch knownType {
-        case is GIR.Record: // Also Class, Union, Interface
+        case is GIR.Record:
             return GIR.gpointerType.typeName
         case let type as GIR.Alias: // use containedTypes
             return ""
-        case is GIR.Bitfield: // use UInt32
+        case is GIR.Bitfield:
             return GIR.uint32Type.typeName
-        case is GIR.Enumeration: // Binary integer (use Int)
-            return GIR.intType.typeName
+        case is GIR.Enumeration:
+            return GIR.uint32Type.typeName
         default: // Treat as fundamental (if not a fundamental, report error)
             return self.typeRef.fullTypeName
         }
@@ -222,13 +240,13 @@ private extension GIR.Argument {
     
     func swiftSignalArgumentConversion(at index: Int) -> String {
         switch knownType {
-        case is GIR.Record: // Also Class, Union, Interface
+        case is GIR.Record:
             return typeRef.type.swiftName + "Ref" + "(raw: $\(index))"
         case let type as GIR.Alias: // use containedTypes
             return ""
-        case is GIR.Bitfield: // use UInt32
+        case is GIR.Bitfield:
             return self.argumentTypeName + "($\(index))"
-        case is GIR.Enumeration: // Binary integer (use Int)
+        case is GIR.Enumeration:
             return self.argumentTypeName + "($\(index))"
         default: // Treat as fundamental (if not a fundamental, report error)
             return swiftReturnRef.cast(expression: "$\(index)", from: typeRef)
