@@ -9,8 +9,8 @@ import Foundation
 
 func signalSanityCheck(_ signal: GIR.Signal) -> String? {
 
-    if !signal.args.allSatisfy({ $0.ownershipTransfer == .none }) || signal.returns.ownershipTransfer != .none {
-        return "// Warning: signal \(signal.name) is ignored because of argument or return with owner transfership is not allowed"
+    if !signal.args.allSatisfy({ $0.ownershipTransfer == .none }) {
+        return "// Warning: signal \(signal.name) is ignored because of argument with owner transfership is not allowed"
     }
     
     if !signal.args.allSatisfy({ $0.direction == .in }) {
@@ -63,10 +63,6 @@ func buildSignalExtension(for record: GIR.Record) -> String {
         "public extension \(record.name.swift) {"
         Code.block {
             Code.loop(over: record.signals.filter { signalSanityCheck($0) == nil }) { signal in
-                
-                if !signal.args.allSatisfy({ $0.typeRef.type.name != "utf8" }) || signal.returns.typeRef.type.name == "utf8" {
-                    { () -> String in print(record.name, signal.name); return "" }()
-                }
                 
                 commentCode(signal)
                 "/// - Note: This function represents signal `\(signal.name)`"
@@ -204,6 +200,14 @@ private func generateReturnStatement(record: GIR.Record, signal: GIR.Signal) -> 
         return "return output.rawValue"
     case is GIR.Enumeration:
         return "return output.rawValue"
+    case nil where signal.returns.swiftReturnRef == GIR.stringRef && signal.returns.ownershipTransfer == .full:
+        return Code.block {
+            "let length = output.utf8CString.count"
+            "let buffer = UnsafeMutablePointer<gchar>.allocate(capacity: length)"
+            "buffer.initialize(from: str, count: length)"
+            "return buffer"
+        }
+        return "return UnsafeMutablePointer<UInt8>(mutating: output)"
     default: // Treat as fundamental (if not a fundamental, report error)
         return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
     }
