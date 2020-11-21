@@ -101,7 +101,7 @@ private func buildAvailableSignal(record: GIR.Record, signal: GIR.Signal) -> Str
     
     "@discardableResult"
     Code.line {
-        "public func on\(signal.name.replacingOccurrences(of: "::", with: "_").camelSignal.capitalised)("
+        "func on\(signal.name.replacingOccurrences(of: "::", with: "_").camelSignal.capitalised)("
         "flags: ConnectFlags = ConnectFlags(0), "
         "handler: "
         handlerType(record: record, signal: signal)
@@ -140,7 +140,7 @@ private func buildUnavailable(signal: GIR.Signal) -> String {
     addDocumentation(signal: signal)
     "/// - Warning: Wrapper of this signal could not be generated because it contains unimplemented features: { \( signalSanityCheck(signal).joined(separator: ", ") ) }"
     "/// - Note: Use this string for `signalConnectData` method"
-    #"public static var on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
+    #"static var on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
 }
 
 @CodeBuilder
