@@ -101,7 +101,7 @@ private func buildAvailableSignal(record: GIR.Record, signal: GIR.Signal) -> Str
     
     "@discardableResult"
     Code.line {
-        "public func _on\(signal.name.replacingOccurrences(of: "::", with: "_").camelSignal.capitalised)("
+        "public func on\(signal.name.replacingOccurrences(of: "::", with: "_").camelSignal.capitalised)("
         "flags: ConnectFlags = ConnectFlags(0), "
         "handler: "
         handlerType(record: record, signal: signal)
@@ -118,7 +118,7 @@ private func buildAvailableSignal(record: GIR.Record, signal: GIR.Signal) -> Str
         }
         Code.block {
             "let holder = Unmanaged<SwiftHandler>.fromOpaque(userData).takeUnretainedValue()"
-            "let output = holder.\(generaceCCallbackCall(record: record, signal: signal))"
+            "let output\(signal.returns.typeRef.type.name == "Void" ? ": Void" : "") = holder.\(generaceCCallbackCall(record: record, signal: signal))"
             generateReturnStatement(record: record, signal: signal)
         }
         "}"
@@ -140,7 +140,7 @@ private func buildUnavailable(signal: GIR.Signal) -> String {
     addDocumentation(signal: signal)
     "/// - Warning: Wrapper of this signal could not be generated because it contains unimplemented features: { \( signalSanityCheck(signal).joined(separator: ", ") ) }"
     "/// - Note: Use this string for `signalConnectData` method"
-    #"public static var _on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
+    #"public static var on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
 }
 
 @CodeBuilder
