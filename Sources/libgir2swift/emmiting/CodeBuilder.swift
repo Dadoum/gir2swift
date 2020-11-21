@@ -40,10 +40,10 @@ class Code {
     }
     
     static func loop<T>(over items: [T], @CodeBuilder builder: (T)->String) -> String {
-        items.isEmpty ? items.map(builder).joined(separator: "\n") : CodeBuilder.ignoringEspace
+        !items.isEmpty ? items.map(builder).joined(separator: "\n") : CodeBuilder.ignoringEspace
     }
     
     static func loopEnumerated<T>(over items: [T], @CodeBuilder builder: (Int, T)->String) -> String {
-        items.isEmpty ? items.enumerated().map(builder).joined(separator: "\n") : CodeBuilder.ignoringEspace
+        !items.isEmpty ? items.enumerated().map(builder).joined(separator: "\n") : CodeBuilder.ignoringEspace
     }
 }

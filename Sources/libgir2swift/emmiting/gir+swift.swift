@@ -12,69 +12,6 @@ public extension GIR {
     var boilerPlate: String {
 """
 
-final class Tmp__ClosureHolder<S,T> {
-    public let call: (S) -> T
-    
-    @inlinable public init(_ closure: @escaping (S) -> T) {
-        self.call = closure
-    }
-}
-
-final class Tmp__DualClosureHolder<S, T, U> {
-    
-    public let call: (S, T) -> U
-    
-    public init(_ closure: @escaping (S, T) -> U) {
-        self.call = closure
-    }
-}
-
-final class Tmp__Closure3Holder<S, T, U, V> {
-
-    public let call: (S, T, U) -> V
-
-    public init(_ closure: @escaping (S, T, U) -> V) {
-        self.call = closure
-    }
-}
-
-final class Tmp__Closure4Holder<S, T, U, V, W> {
-
-    public let call: (S, T, U, V) -> W
-
-    public init(_ closure: @escaping (S, T, U, V) -> W) {
-        self.call = closure
-    }
-}
-
-final class Tmp__Closure5Holder<S, T, U, V, W, X> {
-
-    public let call: (S, T, U, V, W) -> X
-
-    public init(_ closure: @escaping (S, T, U, V, W) -> X) {
-        self.call = closure
-    }
-}
-
-final class Tmp__Closure6Holder<S, T, U, V, W, X, Y> {
-
-    public let call: (S, T, U, V, W, X) -> Y
-
-    public init(_ closure: @escaping (S, T, U, V, W, X) -> Y) {
-        self.call = closure
-    }
-}
-
-final class Tmp__Closure7Holder<S, T, U, V, W, X, Y, Z> {
-
-    public let call: (S, T, U, V, W, X, Y) -> Z
-
-    public init(_ closure: @escaping (S, T, U, V, W, X, Y) -> Z) {
-        self.call = closure
-    }
-}
-
-
 extension gboolean {
    private init(_ b: Bool) { self = b ? gboolean(1) : gboolean(0) }
 }

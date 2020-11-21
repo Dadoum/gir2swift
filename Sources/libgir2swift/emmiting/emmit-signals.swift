@@ -59,59 +59,88 @@ func buildSignalExtension(for record: GIR.Record) -> String {
     return Code.block(indentation: nil) {
         
         "// MARK: Signals of \(record.name.swift)"
-
         "public extension \(record.protocolName) {"
         Code.block {
             Code.loop(over: record.signals.filter( {!signalSanityCheck($0).isEmpty} )) { signal in
-                addDocumentation(signal: signal)
-                "/// - Warning: Wrapper of this signal could not be generated because it contains unimplemented features: { \( signalSanityCheck(signal).joined(separator: ", ") ) }"
-                "/// - Note: Use this string for `signalConnectData` method"
-                #"public static var on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
+                buildUnavailable(signal: signal)
+            }
+            Code.loop(over: record.signals.filter( {signalSanityCheck($0).isEmpty } )) { signal in
+                buildAvailableSignal(record: record, signal: signal)
+            }
+            if let notifySignal = GIR.knownRecords["Object"]?.signals.first(where: { $0.name == "notify"}) {
+                Code.loop(over: record.properties) { property in
+                    buildSignalForProperty(record: record, property: property, notify: notifySignal)
+                }
+            } else {
+                "// Signals of properites were not generated due to unavailability of GObject during generation time"
             }
             
-            Code.loop(over: record.signals.filter( {signalSanityCheck($0).isEmpty } )) { signal in
-                addDocumentation(signal: signal)
-                
-                "@discardableResult"
-                Code.line {
-                    "public func on\(signal.name.camelSignal.capitalised)("
-                    "flags: ConnectFlags = ConnectFlags(0), "
-                    "handler: "
-                    handlerType(record: record, signal: signal)
-                    " ) -> Int {"
-                }
-                Code.block {
-                    "typealias SwiftHandler = \(signalClosureHolderDecl(record: record, signal: signal))"
-                    Code.line {
-                        "let cCallback: "
-                        cCallbackDecl(record: record, signal: signal)
-                        " = { "
-                        cCallbackArgumentsDecl(record: record, signal: signal)
-                        " in"
-                    }
-                    Code.block {
-                        "let holder = Unmanaged<SwiftHandler>.fromOpaque(userData).takeUnretainedValue()"
-                        "let output = holder.\(generaceCCallbackCall(record: record, signal: signal))"
-                        generateReturnStatement(record: record, signal: signal)
-                    }
-                    "}"
-                    "return \(record is GIR.Interface ? "GLibObject.ObjectRef(raw: ptr)." : "" )signalConnectData("
-                    Code.block {
-                        #"detailedSignal: "\#(signal.name)", "#
-                        "cHandler: unsafeBitCast(cCallback, to: GCallback.self), "
-                        "data: Unmanaged.passRetained(SwiftHandler(handler)).toOpaque(), "
-                        "destroyData: { userData, _ in UnsafeRawPointer(userData).flatMap(Unmanaged<SwiftHandler>.fromOpaque(_:))?.release() },"
-                        "connectFlags: flags"
-                    }
-                    ")"
-                }
-                "}"
-                "\n"
-            }
+        }
+        "}\n\n"
+    }
+}
+
+private func buildSignalForProperty(record: GIR.Record, property: GIR.Property, notify: GIR.Signal) -> String {
+    let propertyNotify = GIR.Signal(
+        name: notify.name + "::" + property.name,
+        cname: notify.cname,
+        returns: notify.returns,
+        args: notify.args,
+        comment: notify.comment,
+        introspectable: notify.introspectable,
+        deprecated: notify.deprecated,
+        throwsAnError: notify.throwsError
+    )
+    
+    return buildAvailableSignal(record: record, signal: propertyNotify)
+}
+
+@CodeBuilder
+private func buildAvailableSignal(record: GIR.Record, signal: GIR.Signal) -> String {
+    addDocumentation(signal: signal)
+    
+    "@discardableResult"
+    Code.line {
+        "public func _on\(signal.name.replacingOccurrences(of: "::", with: "_").camelSignal.capitalised)("
+        "flags: ConnectFlags = ConnectFlags(0), "
+        "handler: "
+        handlerType(record: record, signal: signal)
+        " ) -> Int {"
+    }
+    Code.block {
+        "typealias SwiftHandler = \(signalClosureHolderDecl(record: record, signal: signal))"
+        Code.line {
+            "let cCallback: "
+            cCallbackDecl(record: record, signal: signal)
+            " = { "
+            cCallbackArgumentsDecl(record: record, signal: signal)
+            " in"
+        }
+        Code.block {
+            "let holder = Unmanaged<SwiftHandler>.fromOpaque(userData).takeUnretainedValue()"
+            "let output = holder.\(generaceCCallbackCall(record: record, signal: signal))"
+            generateReturnStatement(record: record, signal: signal)
         }
         "}"
-        "\n\n"
+        "return \(record is GIR.Interface ? "GLibObject.ObjectRef(raw: ptr)." : "" )signalConnectData("
+        Code.block {
+            #"detailedSignal: "\#(signal.name)", "#
+            "cHandler: unsafeBitCast(cCallback, to: GCallback.self), "
+            "data: Unmanaged.passRetained(SwiftHandler(handler)).toOpaque(), "
+            "destroyData: { userData, _ in UnsafeRawPointer(userData).flatMap(Unmanaged<SwiftHandler>.fromOpaque(_:))?.release() },"
+            "connectFlags: flags"
+        }
+        ")"
     }
+    "}\n"
+}
+
+@CodeBuilder
+private func buildUnavailable(signal: GIR.Signal) -> String {
+    addDocumentation(signal: signal)
+    "/// - Warning: Wrapper of this signal could not be generated because it contains unimplemented features: { \( signalSanityCheck(signal).joined(separator: ", ") ) }"
+    "/// - Note: Use this string for `signalConnectData` method"
+    #"public static var _on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
 }
 
 @CodeBuilder
@@ -125,37 +154,22 @@ private func handlerType(record: GIR.Record, signal: GIR.Signal) -> String {
 }
 
 private func signalClosureHolderDecl(record: GIR.Record, signal: GIR.Signal) -> String {
-    let holderType: String
-    switch signal.args.count {
-    case 0:
-        holderType = "Tmp__ClosureHolder"
-    case 1:
-        holderType = "Tmp__DualClosureHolder"
-    case 2:
-        holderType = "Tmp__Closure3Holder"
-    case 3:
-        holderType = "Tmp__Closure4Holder"
-    case 4:
-        holderType = "Tmp__Closure5Holder"
-    case 5:
-        holderType = "Tmp__Closure6Holder"
-    case 6:
-        holderType = "Tmp__Closure7Holder"
-    default:
+    if signal.args.count > 6 {
         fatalError("Argument count \(signal.args.count) exceeds number of allowed arguments (6)")
     }
-    
-    return holderType
-        + "<" + record.structName + ", "
-        + signal.args.map { $0.swiftIdiomaticType() }.joined(separator: ", ")
-        + (signal.args.isEmpty ? "" : ", ")
-        + signal.returns.swiftIdiomaticType()
-        + ">"
+    return Code.line {
+        "GLib.ClosureHolder" + (signal.args.count > 0 ? "\(signal.args.count + 1)" : "")
+        "<" + record.structName + ", "
+        signal.args.map { $0.swiftIdiomaticType() }.joined(separator: ", ")
+        (signal.args.isEmpty ? "" : ", ")
+        signal.returns.swiftIdiomaticType()
+        ">"
+    }
 }
 
 @CodeBuilder
 private func addDocumentation(signal: GIR.Signal) -> String {
-    commentCode(signal)
+    { str -> String in str.isEmpty ? CodeBuilder.ignoringEspace : str}(commentCode(signal))
     "/// - Note: Representation of signal named `\(signal.name)`"
     "/// - Parameter flags: Flags"
     let returnComment = gtkDoc2SwiftDoc(signal.returns.comment, linePrefix: "").replacingOccurrences(of: "\n", with: " ")
