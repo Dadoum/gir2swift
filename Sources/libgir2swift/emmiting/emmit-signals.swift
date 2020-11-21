@@ -219,14 +219,14 @@ private func generaceCCallbackCall(record: GIR.Record, signal: GIR.Signal) -> St
 private func generateReturnStatement(record: GIR.Record, signal: GIR.Signal) -> String {
     switch signal.returns.knownType {
     case is GIR.Record:
-        return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
+        return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftSignalRef))"
     case is GIR.Alias: // use containedTypes
         return ""
     case is GIR.Bitfield:
         return "return output.rawValue"
     case is GIR.Enumeration:
         return "return output.rawValue"
-    case nil where signal.returns.swiftReturnRef == GIR.stringRef && signal.returns.ownershipTransfer == .full:
+    case nil where signal.returns.swiftSignalRef == GIR.stringRef && signal.returns.ownershipTransfer == .full:
         return Code.block {
             "let length = output.utf8CString.count"
             "let buffer = UnsafeMutablePointer<gchar>.allocate(capacity: length)"
@@ -234,7 +234,7 @@ private func generateReturnStatement(record: GIR.Record, signal: GIR.Signal) -> 
             "return buffer"
         }
     default: // Treat as fundamental (if not a fundamental, report error)
-        return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftReturnRef))"
+        return "return \(signal.returns.typeRef.cast(expression: "output", from: signal.returns.swiftSignalRef))"
     }
 }
 
@@ -251,7 +251,7 @@ private extension GIR.Argument {
         case is GIR.Enumeration:
             return self.argumentTypeName + ((isNullable || isOptional) ? "?" : "")
         default: // Treat as fundamental (if not a fundamental, report error)
-            return self.swiftReturnRef.fullSwiftTypeName + ((isNullable || isOptional) ? "?" : "")
+            return self.swiftSignalRef.fullSwiftTypeName + ((isNullable || isOptional) ? "?" : "")
         }
     }
     
@@ -289,10 +289,10 @@ private extension GIR.Argument {
                 return "arg\(index).flatMap(\(self.argumentTypeName).init(_:))"
             }
             return self.argumentTypeName + "(arg\(index))"
-        case nil where swiftReturnRef == GIR.stringRef:
-            return swiftReturnRef.cast(expression: "arg\(index)", from: typeRef) + ((isNullable || isOptional) ? "" : "!")
+        case nil where swiftSignalRef == GIR.stringRef:
+            return swiftSignalRef.cast(expression: "arg\(index)", from: typeRef) + ((isNullable || isOptional) ? "" : "!")
         default: // Treat as fundamental (if not a fundamental, report error)
-            return swiftReturnRef.cast(expression: "arg\(index)", from: typeRef)
+            return swiftSignalRef.cast(expression: "arg\(index)", from: typeRef)
         }
     }
 }
