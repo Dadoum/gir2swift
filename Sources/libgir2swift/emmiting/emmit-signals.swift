@@ -101,7 +101,7 @@ private func buildAvailableSignal(record: GIR.Record, signal: GIR.Signal) -> Str
     
     "@discardableResult"
     Code.line {
-        "public func on\(signal.name.replacingOccurrences(of: "::", with: "_").camelSignal.capitalised)("
+        "func on\(signal.name.replacingOccurrences(of: "::", with: "_").camelSignal.capitalised)("
         "flags: ConnectFlags = ConnectFlags(0), "
         "handler: "
         handlerType(record: record, signal: signal)
@@ -140,7 +140,7 @@ private func buildUnavailable(signal: GIR.Signal) -> String {
     addDocumentation(signal: signal)
     "/// - Warning: Wrapper of this signal could not be generated because it contains unimplemented features: { \( signalSanityCheck(signal).joined(separator: ", ") ) }"
     "/// - Note: Use this string for `signalConnectData` method"
-    #"public static var on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
+    #"static var on\#(signal.name.camelSignal.capitalised): String { "\#(signal.name)" }"#
 }
 
 @CodeBuilder
@@ -243,28 +243,28 @@ private extension GIR.Argument {
     func swiftIdiomaticType() -> String {
         switch knownType {
         case is GIR.Record:
-            return typeRef.type.swiftName + "Ref" + (isNullable ? "?" : "")
+            return typeRef.type.swiftName + "Ref" + ((isNullable || isOptional) ? "?" : "")
         case is GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield:
-            return self.argumentTypeName + (isNullable ? "?" : "")
+            return self.argumentTypeName + ((isNullable || isOptional) ? "?" : "")
         case is GIR.Enumeration:
-            return self.argumentTypeName + (isNullable ? "?" : "")
+            return self.argumentTypeName + ((isNullable || isOptional) ? "?" : "")
         default: // Treat as fundamental (if not a fundamental, report error)
-            return self.swiftReturnRef.fullSwiftTypeName + (isNullable ? "?" : "")
+            return self.swiftReturnRef.fullSwiftTypeName + ((isNullable || isOptional) ? "?" : "")
         }
     }
     
     func swiftCCompatibleType() -> String {
         switch knownType {
         case is GIR.Record:
-            return GIR.gpointerType.typeName + (isNullable ? "?" : "")
+            return GIR.gpointerType.typeName + ((isNullable || isOptional) ? "?" : "")
         case is GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield:
-            return GIR.uint32Type.typeName + (isNullable ? "?" : "")
+            return GIR.uint32Type.typeName + ((isNullable || isOptional) ? "?" : "")
         case is GIR.Enumeration:
-            return GIR.uint32Type.typeName + (isNullable ? "?" : "")
+            return GIR.uint32Type.typeName + ((isNullable || isOptional) ? "?" : "")
         default: // Treat as fundamental (if not a fundamental, report error)
             return self.callbackArgumentTypeName
         }
@@ -273,24 +273,24 @@ private extension GIR.Argument {
     func swiftSignalArgumentConversion(at index: Int) -> String {
         switch knownType {
         case is GIR.Record:
-            if isNullable {
+            if (isNullable || isOptional) {
                 return "arg\(index).flatMap(\(typeRef.type.swiftName)Ref.init(raw:))"
             }
             return typeRef.type.swiftName + "Ref" + "(raw: arg\(index))"
         case is GIR.Alias: // use containedTypes
             return ""
         case is GIR.Bitfield:
-            if isNullable {
+            if (isNullable || isOptional) {
                 return "arg\(index).flatMap(\(self.argumentTypeName).init(_:))"
             }
             return self.argumentTypeName + "(arg\(index))"
         case is GIR.Enumeration:
-            if isNullable {
+            if (isNullable || isOptional) {
                 return "arg\(index).flatMap(\(self.argumentTypeName).init(_:))"
             }
             return self.argumentTypeName + "(arg\(index))"
         case nil where swiftReturnRef == GIR.stringRef:
-            return swiftReturnRef.cast(expression: "arg\(index)", from: typeRef) + (isNullable ? "" : "!")
+            return swiftReturnRef.cast(expression: "arg\(index)", from: typeRef) + ((isNullable || isOptional) ? "" : "!")
         default: // Treat as fundamental (if not a fundamental, report error)
             return swiftReturnRef.cast(expression: "arg\(index)", from: typeRef)
         }
